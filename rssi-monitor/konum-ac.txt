@@ -1,0 +1,2 @@
+﻿# Yonetici terminalinde calistir
+Set-Service lfsvc -StartupType Manual; Start-Service lfsvc; Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location" -Name Value -Value Allow; Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location" -Name Value -Value Allow; "Tamam"

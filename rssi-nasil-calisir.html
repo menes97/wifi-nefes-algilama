@@ -1,0 +1,725 @@
+<title>RSSI Nasıl Çalışır?</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~66ch) with wider "instrument" figures that break out of it. */
+:root {
+  --bg: #f2f5f7;
+  --surface: #ffffff;
+  --ink: #13202a;
+  --muted: #566875;
+  --line: #d3dce3;
+  --accent: #2545c4;
+  --wave: #0e8db2;
+  --person: #8a4fd6;
+  --good: #1b9a66;
+  --ok: #7aa51f;
+  --warn: #c98a12;
+  --bad: #c8442f;
+  --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-data: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1319; --surface: #141c24; --ink: #e3e9ef; --muted: #93a2b0; --line: #26323d;
+    --accent: #93a8ff; --wave: #4cc5e6; --person: #b892ff;
+    --good: #3fcb8e; --ok: #a9d34a; --warn: #e8b04a; --bad: #f07560;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1319; --surface: #141c24; --ink: #e3e9ef; --muted: #93a2b0; --line: #26323d;
+  --accent: #93a8ff; --wave: #4cc5e6; --person: #b892ff;
+  --good: #3fcb8e; --ok: #a9d34a; --warn: #e8b04a; --bad: #f07560;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 18px/1.65 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
+.prose { max-width: 66ch; display: grid; gap: 16px; min-width: 0; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.1; }
+h1 { font-size: clamp(64px, 14vw, 136px); font-weight: 800; font-stretch: 125%; letter-spacing: -0.02em; }
+h2 { font-size: clamp(26px, 4vw, 34px); font-weight: 700; font-stretch: 112%; }
+h3 { font-size: 19px; font-weight: 700; font-stretch: 100%; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-data); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: 21px; line-height: 1.55; }
+.num, .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+
+/* Figures: the instrument panels */
+figure { margin: 0; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+figcaption { font-size: 15px; color: var(--muted); line-height: 1.5; }
+
+/* Simulator */
+.sim { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; }
+@media (max-width: 820px) { .sim { grid-template-columns: minmax(0, 1fr); } }
+#simCanvas { width: 100%; height: 280px; display: block; border-radius: 10px; background: var(--bg); touch-action: none; cursor: grab; }
+#simCanvas.dragging { cursor: grabbing; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px 20px; font-family: var(--font-display); font-size: 15px; }
+.control { display: grid; gap: 6px; }
+.control label { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.control label .num { color: var(--ink); }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+select, button {
+  font: 600 15px var(--font-display); color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
+}
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.readout { display: grid; gap: 14px; align-content: start; }
+.big { font-family: var(--font-data); font-size: 56px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.big small { font-size: 20px; font-weight: 400; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+.quality { display: inline-flex; align-items: center; gap: 8px; font: 700 16px var(--font-display); }
+.quality .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+.meter { position: relative; height: 14px; border-radius: 7px; overflow: hidden; display: flex; }
+.meter span { height: 100%; }
+.meter-wrap { display: grid; gap: 4px; }
+.meter-marker { position: relative; height: 0; }
+.meter-marker i { position: absolute; top: -20px; width: 3px; height: 20px; background: var(--ink); border-radius: 2px; transform: translateX(-1px); transition: left .25s; }
+.meter-scale { display: flex; justify-content: space-between; font: 12px var(--font-data); color: var(--muted); }
+.breakdown { font: 13px/1.7 var(--font-data); color: var(--muted); display: grid; }
+.breakdown div { display: flex; justify-content: space-between; gap: 10px; }
+.breakdown div span:last-child { color: var(--ink); }
+.breakdown .total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+#histCanvas { width: 100%; height: 70px; display: block; }
+
+/* dBm ladder */
+.ladder { display: grid; gap: 10px; }
+.rung { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 4px 16px; align-items: center; }
+.rung .db { font: 600 16px var(--font-data); text-align: right; }
+.rung .bar { height: 10px; border-radius: 5px; background: var(--wave); opacity: .85; }
+.rung .what { grid-column: 2; font-size: 15px; color: var(--muted); line-height: 1.4; }
+.rung.you .bar { background: var(--accent); opacity: 1; }
+.rung.you .db, .rung.you .what strong { color: var(--accent); }
+@media (max-width: 480px) { .rung { grid-template-columns: 64px minmax(0, 1fr); } .rung .db { font-size: 14px; } }
+
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.rule { border-top: 3px solid var(--accent); padding-top: 10px; display: grid; gap: 4px; }
+.rule b { font: 700 28px var(--font-data); }
+.rule span { font-size: 15px; color: var(--muted); }
+
+/* Steps */
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; }
+ol.steps li::before { content: counter(s); font: 700 15px var(--font-data); color: var(--accent); border: 1.5px solid var(--accent); border-radius: 50%; width: 30px; height: 30px; display: grid; place-items: center; margin-top: 2px; }
+
+/* SVG diagrams */
+.svgbox { overflow-x: auto; }
+.svgbox svg { display: block; width: 100%; height: auto; min-width: 520px; }
+svg text { font-family: var(--font-display); fill: var(--muted); }
+svg .t-ink { fill: var(--ink); }
+svg .t-acc { fill: var(--accent); }
+svg .t-wave { fill: var(--wave); }
+svg .t-person { fill: var(--person); }
+svg .s-line { stroke: var(--line); fill: none; }
+svg .s-ink { stroke: var(--ink); fill: none; }
+svg .s-wave { stroke: var(--wave); fill: none; }
+svg .s-acc { stroke: var(--accent); fill: none; }
+svg .s-muted { stroke: var(--muted); fill: none; }
+svg .f-surface { fill: var(--surface); }
+svg .f-bg { fill: var(--bg); }
+svg .f-ink { fill: var(--ink); }
+svg .f-acc { fill: var(--accent); }
+svg .f-person { fill: var(--person); }
+svg .f-good { fill: var(--good); }
+svg .f-ok { fill: var(--ok); }
+svg .f-warn { fill: var(--warn); }
+svg .f-bad { fill: var(--bad); }
+
+/* CSI compare */
+.csi { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 20px; align-items: end; }
+@media (max-width: 560px) { .csi { grid-template-columns: 90px minmax(0, 1fr); gap: 12px; } }
+.csi h3 { font-size: 15px; margin-bottom: 8px; }
+.csi svg { width: 100%; height: 180px; display: block; }
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+/* Table */
+.tablebox { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 16px; min-width: 480px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 600 13px var(--font-data); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td.mono { white-space: nowrap; }
+
+.takeaways { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; }
+.takeaways li { padding-left: 22px; position: relative; }
+.takeaways li::before { content: ""; position: absolute; left: 0; top: .62em; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--wave); }
+
+@media (max-width: 560px) {
+  body { font-size: 17px; }
+  .lead { font-size: 19px; }
+  .panel { padding: 14px; }
+  #simCanvas { height: 230px; }
+  .big { font-size: 46px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meter-marker i { transition: none; }
+}
+</style>
+
+<main class="wrap">
+
+  <header class="prose">
+    <div class="eyebrow">Received Signal Strength Indicator</div>
+    <h1>RSSI</h1>
+    <p class="lead"><strong>Alınan Sinyal Gücü Göstergesi.</strong> Bir cihazın modemden gelen radyo dalgasını ne kadar güçlü duyduğunu tek bir sayıyla söyler. Benim laptopum evde <span class="num">−43 dBm</span> ölçtü. Bu sayfada o sayının ne anlama geldiğini, nasıl ölçüldüğünü ve araya biri girince neden değiştiğini anlatıyorum.</p>
+  </header>
+
+  <!-- Simulator -->
+  <figure class="panel" aria-label="RSSI simülatörü">
+    <div class="sim">
+      <div style="display:grid; gap:14px; min-width:0">
+        <canvas id="simCanvas" aria-label="Modem, laptop ve aradaki kişiyi gösteren canlı çizim"></canvas>
+        <div class="controls">
+          <div class="control">
+            <label for="dist">Mesafe <span class="num" id="distOut">3,5 m</span></label>
+            <input type="range" id="dist" min="1" max="20" step="0.5" value="3.5">
+          </div>
+          <div class="control">
+            <label for="walls">Aradaki duvar <span class="num" id="wallsOut">0</span></label>
+            <input type="range" id="walls" min="0" max="3" step="1" value="0">
+          </div>
+          <div class="control">
+            <label for="env">Ortam</label>
+            <select id="env">
+              <option value="3" selected>Ev içi (eşya, yansıma)</option>
+              <option value="2">Açık alan (engel yok)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label for="personBtn">Kişi</label>
+            <button id="personBtn" type="button" class="primary">Kişiyi araya koy</button>
+          </div>
+        </div>
+      </div>
+      <div class="readout" aria-live="polite">
+        <div>
+          <div class="eyebrow">Laptopun ölçtüğü</div>
+          <div class="big" id="rssiOut">−43<small>dBm</small></div>
+        </div>
+        <div class="quality" id="qualOut"><span class="dot"></span><span>Mükemmel</span></div>
+        <div class="meter-wrap">
+          <div class="meter" id="meter"></div>
+          <div class="meter-marker"><i id="marker"></i></div>
+          <div class="meter-scale"><span>−100</span><span>−80</span><span>−60</span><span>−40</span><span>−20</span></div>
+        </div>
+        <div class="breakdown" id="breakdown"></div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:4px">Son 30 saniye</div>
+          <canvas id="histCanvas" aria-hidden="true"></canvas>
+        </div>
+      </div>
+    </div>
+    <figcaption>Kişiyi fareyle ya da parmağınızla sürükleyebilirsiniz. Laptop ile modem arasındaki düz çizgiye yaklaştıkça sinyal düşer. Sayılar, tipik bir modemin 20 dBm (100 mW) yaydığı varsayımıyla hesaplanan yaklaşık değerlerdir.</figcaption>
+  </figure>
+
+  <!-- dBm -->
+  <section class="prose">
+    <div class="eyebrow">Birim</div>
+    <h2>dBm: neden eksi bir sayı?</h2>
+    <p>RSSI genelde <strong>dBm</strong> ile ölçülür. dBm, gücü 1 miliwatt'a göre karşılaştırır: <span class="num">0 dBm</span> tam olarak 1 mW demektir. Laptopa ulaşan güç 1 mW'tan çok çok küçük olduğu için sayı eksi çıkar. Yani <span class="num">−43</span>, <span class="num">−70</span>'ten <strong>daha güçlüdür</strong>. Sıfıra ne kadar yakınsa sinyal o kadar iyi.</p>
+    <p>Ölçek logaritmiktir. Bu yüzden birkaç dB'lik fark aslında gücün katlarca değişmesi anlamına gelir:</p>
+  </section>
+
+  <div class="rules">
+    <div class="rule"><b>+3 dB</b><span>gücün yaklaşık 2 katı</span></div>
+    <div class="rule"><b>+10 dB</b><span>gücün 10 katı</span></div>
+    <div class="rule"><b>−20 dB</b><span>gücün 100'de biri</span></div>
+    <div class="rule"><b>63 dB</b><span>modemin yaydığı 100 mW ile laptopumun aldığı −43 dBm arasındaki fark. Yani yaklaşık 2 milyon kat zayıflama.</span></div>
+  </div>
+
+  <figure class="panel">
+    <div class="ladder" id="ladder"></div>
+    <figcaption>Çubuk uzunlukları dBm ile doğru orantılı, yani logaritmik. Aynı şeyi miliwatt cinsinden çizseydik, alttaki çubuklar ekranda hiç görünmezdi.</figcaption>
+  </figure>
+
+  <!-- How it's measured -->
+  <section class="prose">
+    <div class="eyebrow">Ölçüm</div>
+    <h2>Çip bu sayıyı nasıl buluyor?</h2>
+    <p>WiFi çipi her paketi alırken gücünü zaten ölçmek zorundadır, çünkü sinyali çözebilmek için ne kadar yükseltmesi gerektiğini bilmesi gerekir. RSSI bu işin yan ürünüdür:</p>
+    <ol class="steps">
+      <li><span>Modem her paketin başına bilinen bir <strong>giriş dizisi</strong> (preamble) ekleyip havaya yollar. Benim modemim bunu 5 GHz bandında, kanal 104'te yapıyor.</span></li>
+      <li><span>Laptopun anteni radyo dalgasını çok küçük bir elektrik sinyaline çevirir. <span class="num">−43 dBm</span> yaklaşık <span class="num">50 nanowatt</span> eder.</span></li>
+      <li><span>Alıcıdaki <strong>otomatik kazanç kontrolü</strong> (AGC), giriş dizisini görünce sinyali ne kadar yükselteceğini ayarlar. Ne kadar çok yükseltmesi gerekiyorsa sinyal o kadar zayıftır.</span></li>
+      <li><span>Çip bu kazanç ayarından ve ölçtüğü gerilimden gücü hesaplar ve paket başına bir dBm değeri çıkarır.</span></li>
+      <li><span>Sürücü ve işletim sistemi bu değeri kullanıcıya iletir. Windows bağlı olunan ağın değerini her pakette değil, yalnızca WiFi taraması yaptıkça yeniler.</span></li>
+    </ol>
+  </section>
+
+  <!-- Distance -->
+  <section class="prose">
+    <div class="eyebrow">Mesafe</div>
+    <h2>Uzaklaştıkça neden hızla düşüyor?</h2>
+    <p>Modemden çıkan dalga her yöne yayılır. Mesafe iki katına çıkınca aynı enerji dört kat büyük bir küre yüzeyine dağılır, bu da yaklaşık <span class="num">6 dB</span> kayıp demektir. Açık alanda kural budur. Ev içinde eşyalar, duvarlar ve yansımalar yüzünden düşüş daha da hızlıdır.</p>
+  </section>
+
+  <figure class="panel">
+    <div class="svgbox"><svg id="plChart" viewBox="0 0 680 320" role="img" aria-label="Mesafeye göre RSSI grafiği"></svg></div>
+    <figcaption>5,52 GHz (kanal 104) ve 20 dBm verici gücü için hesaplanmış eğriler. Benim ölçtüğüm −43 dBm, açık alanda yaklaşık 6 metreye, ev içinde yaklaşık 3 metreye denk geliyor. Gerçek ev bu ikisinin arasında bir yerdedir.</figcaption>
+  </figure>
+
+  <!-- Body / multipath -->
+  <section class="prose">
+    <div class="eyebrow">İnsan vücudu</div>
+    <h2>Araya biri girince ne oluyor?</h2>
+    <p>İnsan vücudunun yaklaşık yüzde 60'ı sudur ve su 2,4 ile 5 GHz'deki radyo dalgalarını iyi emer. Biri modemle laptop arasındaki <strong>doğrudan yolu</strong> kapatınca o yoldan gelen enerjinin büyük kısmı kaybolur. 5 GHz'de bu genelde birkaç ile 10 dB arası bir düşüş demek.</p>
+    <p>Ama sinyal tek yoldan gelmez. Duvarlardan, tavandan ve eşyalardan yansıyan kopyalar da laptopa ulaşır. Buna <strong>çok yollu yayılım</strong> (multipath) denir. Kopyalar bazen birbirini güçlendirir, bazen söndürür. İnsan hareket ettikçe bu yolların bir kısmını kapatıp açtığı için RSSI dalgalanır.</p>
+  </section>
+
+  <figure class="panel">
+    <div class="svgbox">
+      <svg viewBox="0 0 680 320" role="img" aria-label="Oda içinde doğrudan yol ve yansıyan yollar">
+        <rect x="20" y="20" width="640" height="280" rx="10" class="s-muted" stroke-width="6" />
+        <text x="340" y="14" text-anchor="middle" font-size="13">tavan / duvar</text>
+        <text x="340" y="316" text-anchor="middle" font-size="13">zemin / duvar</text>
+        <!-- reflections -->
+        <polyline points="120,160 340,24 560,160" class="s-wave" stroke-width="2.5" stroke-dasharray="7 6" />
+        <polyline points="120,160 340,296 560,160" class="s-wave" stroke-width="2.5" stroke-dasharray="7 6" />
+        <text x="440" y="70" font-size="14" class="t-wave">yansıyan yol</text>
+        <text x="440" y="262" font-size="14" class="t-wave">yansıyan yol</text>
+        <!-- direct -->
+        <line x1="120" y1="160" x2="315" y2="160" class="s-acc" stroke-width="4" />
+        <line x1="365" y1="160" x2="560" y2="160" class="s-acc" stroke-width="4" stroke-dasharray="3 7" opacity=".55" />
+        <text x="200" y="150" font-size="14" class="t-acc" text-anchor="middle">doğrudan yol</text>
+        <text x="462" y="150" font-size="13" class="t-acc" text-anchor="middle">zayıfladı</text>
+        <!-- modem -->
+        <rect x="88" y="146" width="64" height="30" rx="6" class="f-ink" />
+        <line x1="100" y1="146" x2="94" y2="122" class="s-ink" stroke-width="3" stroke-linecap="round" />
+        <line x1="140" y1="146" x2="146" y2="122" class="s-ink" stroke-width="3" stroke-linecap="round" />
+        <text x="120" y="198" text-anchor="middle" font-size="14" class="t-ink">Modem</text>
+        <!-- laptop -->
+        <rect x="534" y="132" width="52" height="34" rx="3" class="f-ink" />
+        <rect x="524" y="166" width="72" height="6" rx="2" class="f-ink" />
+        <text x="560" y="198" text-anchor="middle" font-size="14" class="t-ink">Laptop</text>
+        <!-- person -->
+        <circle cx="340" cy="128" r="11" class="f-person" />
+        <rect x="326" y="142" width="28" height="48" rx="12" class="f-person" />
+        <text x="340" y="212" text-anchor="middle" font-size="14" class="t-person">İnsan</text>
+      </svg>
+    </div>
+    <figcaption>Kişi doğrudan yolu kapatıyor, yansıyan yollar ise hâlâ açık. Bu yüzden sinyal tamamen kesilmiyor, sadece birkaç dB düşüyor.</figcaption>
+  </figure>
+
+  <!-- RSSI vs CSI -->
+  <section class="prose">
+    <div class="eyebrow">Sınırlar</div>
+    <h2>RSSI neden konum için yetmiyor?</h2>
+    <p>RSSI bütün kanalın toplam gücünü <strong>tek bir sayıya</strong> indirir. Oysa 5 GHz'deki bir WiFi kanalı aslında yan yana dizilmiş yüzlerce küçük frekanstan (alt taşıyıcı) oluşur. Çok yollu yayılım her alt taşıyıcıyı farklı etkiler. Bu ayrıntılı tabloya <strong>CSI</strong> (Channel State Information) denir. Biri hareket ettiğinde RSSI sadece birkaç dB oynar, CSI'nin şekli ise belirgin biçimde değişir. Konum ve hareket tahmini yapan sistemler bu şekli kullanır. ESP32 ile bir sonraki adımda deneyeceğim şey de bu.</p>
+  </section>
+
+  <figure class="panel">
+    <div class="toolbar">
+      <button id="csiBtn" type="button" class="primary">Araya insan girsin</button>
+      <span class="muted" id="csiState" style="font-size:15px">Şu an: oda boş</span>
+    </div>
+    <div class="csi">
+      <div>
+        <h3>RSSI</h3>
+        <svg id="rssiBar" viewBox="0 0 140 180" aria-label="Tek RSSI değeri"></svg>
+      </div>
+      <div style="min-width:0">
+        <h3>CSI · 64 alt taşıyıcı</h3>
+        <svg id="csiBars" viewBox="0 0 640 180" preserveAspectRatio="none" aria-label="Alt taşıyıcılara göre sinyal genliği"></svg>
+      </div>
+    </div>
+    <figcaption>Basit bir üç yollu kanal modeliyle hesaplandı. Sağdaki desen insanın konumuna göre değişir. Soldaki tek sayı ise neredeyse aynı kalır.</figcaption>
+  </figure>
+
+  <!-- Your measurements -->
+  <section class="prose">
+    <div class="eyebrow">Kendi denemem</div>
+    <h2>Laptopumda ne gördüm?</h2>
+    <p>Intel Wi-Fi 6 AX201 kartlı laptopumda ve Vodafone modemimde yaptığım ölçümler:</p>
+  </section>
+
+  <figure class="panel">
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Deneme</th><th>Sonuç</th></tr></thead>
+        <tbody>
+          <tr><td>16 saniye boyunca saniyede 4 okuma</td><td>Değer hiç değişmedi: <span class="num">−47 dBm</span></td></tr>
+          <tr><td>Okurken modeme sürekli ping atmak</td><td>Yine hiç değişmedi</td></tr>
+          <tr><td>Arada WiFi taraması tetiklemek</td><td>Değerler oynamaya başladı: <span class="num">−42, −44, −43</span></td></tr>
+          <tr><td>Saniyede bir tarama istemek</td><td>Windows taramaları kısıtlıyor; yeni değer yaklaşık <span class="num">5 sn</span>'de bir geliyor</td></tr>
+          <tr><td>Normal kullanımdaki değer</td><td><span class="num">−43 dBm</span>, %92: mükemmel bölge</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Sonuç: Windows'ta RSSI ile "biri birkaç saniye arada duruyor mu?" sorusuna cevap verilebilir. Hızlı geçişler çoğu zaman kaçar.</figcaption>
+  </figure>
+
+  <section class="prose">
+    <h2>Kısaca</h2>
+    <ul class="takeaways">
+      <li>RSSI, cihazın aldığı sinyalin gücüdür ve dBm ile ölçülür. Sıfıra yakın olan daha güçlüdür.</li>
+      <li>3 dB yaklaşık 2 kat, 10 dB tam 10 kat güç farkı demektir.</li>
+      <li>Mesafe, duvarlar ve insan vücudu sinyali zayıflatır. Vücuttaki su 5 GHz'i iyi emer.</li>
+      <li>RSSI tek bir sayıdır. Varlık algılamaya yeter ama konum için CSI gibi daha ayrıntılı veri gerekir.</li>
+    </ul>
+  </section>
+
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmt = (v) => (v < 0 ? "−" : "") + Math.abs(v);
+
+  // ---- Radio model ----
+  const PTX = 20;          // dBm, typical AP transmit power
+  const PL1 = 47.3;        // dB, free-space loss at 1 m for 5.52 GHz
+  const BODY = 8;          // dB, person fully on the direct path
+  const WALL = 7;          // dB per interior wall at 5 GHz
+  const ZONES = [
+    { min: -50, label: "Mükemmel", c: "--good" },
+    { min: -60, label: "Çok iyi", c: "--good" },
+    { min: -67, label: "İyi", c: "--ok" },
+    { min: -75, label: "Zayıf", c: "--warn" },
+    { min: -85, label: "Çok zayıf", c: "--bad" },
+    { min: -200, label: "Bağlantı kopar", c: "--bad" },
+  ];
+  const zoneOf = (v) => ZONES.find((z) => v >= z.min);
+  const pathLoss = (d, n) => PL1 + 10 * n * Math.log10(d);
+
+  // ---- Simulator state ----
+  const st = { d: 3.5, n: 3, walls: 0, px: 0.5, py: 0.86, jitter: 0, hist: [], body: 0 };
+  const cv = $("simCanvas"), cx = cv.getContext("2d");
+  const hc = $("histCanvas"), hx = hc.getContext("2d");
+  let W = 0, H = 0;
+
+  function size(c, ctx) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return [w, h];
+  }
+
+  const geo = () => ({ mx: W * 0.12, lx: W * 0.88, y: H * 0.5 });
+
+  function bodyLoss() {
+    const g = geo();
+    const x = st.px * W, y = st.py * H;
+    if (x < g.mx + 10 || x > g.lx - 10) return 0;
+    const dp = Math.abs(y - g.y);
+    return BODY * Math.max(0, Math.min(1, (64 - dp) / 44));
+  }
+
+  function rssiNow() {
+    st.body = bodyLoss();
+    const pl = pathLoss(st.d, st.n);
+    return { pl, value: PTX - pl - st.walls * WALL - st.body + st.jitter };
+  }
+
+  // Meter
+  const meter = $("meter");
+  const segs = [[-100, -85, "--bad"], [-85, -75, "--bad"], [-75, -67, "--warn"], [-67, -60, "--ok"], [-60, -50, "--good"], [-50, -20, "--good"]];
+  meter.innerHTML = segs.map(([a, b, c], i) =>
+    `<span style="width:${((b - a) / 80) * 100}%; background:var(${c}); opacity:${[0.55, 0.85, 0.85, 0.85, 0.75, 1][i]}"></span>`).join("");
+
+  function updateReadout() {
+    const { pl, value } = rssiNow();
+    const v = Math.round(value);
+    $("rssiOut").innerHTML = `${fmt(v)}<small>dBm</small>`;
+    const z = zoneOf(v);
+    const q = $("qualOut");
+    q.style.color = `var(${z.c})`;
+    q.lastElementChild.textContent = z.label;
+    const pct = Math.max(0, Math.min(100, ((v + 100) / 80) * 100));
+    $("marker").style.left = pct + "%";
+    const rows = [
+      ["Modemin gücü", `+${PTX} dBm`],
+      [`Mesafe kaybı (${st.d} m)`, `${fmt(-Math.round(pl))} dB`],
+    ];
+    if (st.walls) rows.push([`Duvar (${st.walls})`, `${fmt(-st.walls * WALL)} dB`]);
+    if (st.body > 0.4) rows.push(["İnsan vücudu", `${fmt(-Math.round(st.body))} dB`]);
+    rows.push(["Ölçüm gürültüsü", `${st.jitter >= 0 ? "+" : "−"}${Math.abs(st.jitter).toFixed(1)} dB`]);
+    $("breakdown").innerHTML = rows.map(([a, b]) => `<div><span>${a}</span><span>${b}</span></div>`).join("") +
+      `<div class="total"><span>Sonuç</span><span>${fmt(v)} dBm</span></div>`;
+    return v;
+  }
+
+  // Drawing helpers
+  function drawModem(x, y, ink) {
+    cx.fillStyle = ink; cx.strokeStyle = ink; cx.lineWidth = 3; cx.lineCap = "round";
+    roundRect(x - 26, y - 12, 52, 24, 5); cx.fill();
+    cx.beginPath(); cx.moveTo(x - 16, y - 12); cx.lineTo(x - 21, y - 32); cx.moveTo(x + 16, y - 12); cx.lineTo(x + 21, y - 32); cx.stroke();
+  }
+  function drawLaptop(x, y, ink) {
+    cx.fillStyle = ink;
+    roundRect(x - 20, y - 26, 40, 26, 3); cx.fill();
+    roundRect(x - 28, y, 56, 5, 2); cx.fill();
+  }
+  function drawPerson(x, y, col) {
+    cx.fillStyle = col;
+    cx.beginPath(); cx.arc(x, y - 26, 10, 0, Math.PI * 2); cx.fill();
+    roundRect(x - 13, y - 13, 26, 44, 12); cx.fill();
+  }
+  function roundRect(x, y, w, h, r) {
+    cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r);
+    cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath();
+  }
+
+  let t0 = performance.now();
+  function drawSim(now) {
+    [W, H] = size(cv, cx);
+    const g = geo();
+    const ink = tok("--ink"), wave = tok("--wave"), acc = tok("--accent"), person = tok("--person"), muted = tok("--muted"), bg = tok("--bg");
+    cx.clearRect(0, 0, W, H);
+
+    const t = reduced ? 0.9 : (now - t0) / 1000;
+    const maxR = Math.hypot(W, H);
+    const spacing = 46;
+    // Waves
+    cx.lineWidth = 2;
+    for (let k = 0; k < Math.ceil(maxR / spacing) + 1; k++) {
+      const r = ((t * 70) + k * spacing) % maxR;
+      if (r < 30) continue;
+      const a = Math.max(0, 1 - r / (maxR * 0.85));
+      cx.strokeStyle = wave; cx.globalAlpha = a * 0.55;
+      cx.beginPath(); cx.arc(g.mx, g.y, r, 0, Math.PI * 2); cx.stroke();
+    }
+    cx.globalAlpha = 1;
+
+    // Walls
+    for (let i = 0; i < st.walls; i++) {
+      const x = g.mx + (g.lx - g.mx) * ((i + 1) / (st.walls + 1)) + (st.walls === 1 ? 40 : 0);
+      cx.fillStyle = muted; cx.globalAlpha = 0.35;
+      cx.fillRect(x - 5, 16, 10, H - 32);
+      cx.globalAlpha = 1;
+    }
+
+    // Person shadow (attenuated region behind the person, seen from the modem)
+    const px = st.px * W, py = st.py * H;
+    const dx = px - g.mx, dy = py - g.y, dist = Math.hypot(dx, dy);
+    if (dist > 30) {
+      const ang = Math.atan2(dy, dx), half = Math.atan2(16, dist);
+      cx.fillStyle = bg; cx.globalAlpha = 0.75;
+      cx.beginPath();
+      cx.moveTo(px + Math.cos(ang - Math.PI / 2) * 14, py + Math.sin(ang - Math.PI / 2) * 14);
+      cx.lineTo(g.mx + Math.cos(ang - half) * maxR, g.y + Math.sin(ang - half) * maxR);
+      cx.lineTo(g.mx + Math.cos(ang + half) * maxR, g.y + Math.sin(ang + half) * maxR);
+      cx.lineTo(px + Math.cos(ang + Math.PI / 2) * 14, py + Math.sin(ang + Math.PI / 2) * 14);
+      cx.closePath(); cx.fill();
+      cx.globalAlpha = 1;
+    }
+
+    // Line of sight
+    const blocked = st.body / BODY;
+    cx.setLineDash([6, 6]); cx.lineWidth = 2.5; cx.strokeStyle = acc; cx.globalAlpha = 1 - blocked * 0.65;
+    cx.beginPath(); cx.moveTo(g.mx + 30, g.y); cx.lineTo(g.lx - 32, g.y); cx.stroke();
+    cx.setLineDash([]); cx.globalAlpha = 1;
+
+    drawModem(g.mx, g.y, ink);
+    drawLaptop(g.lx, g.y + 10, ink);
+    drawPerson(px, py, person);
+
+    cx.fillStyle = muted; cx.font = `600 13px ${tok("--font-display")}`; cx.textAlign = "center";
+    cx.fillText("Modem", g.mx, g.y + 34);
+    cx.fillText("Laptop", g.lx, g.y + 34);
+    cx.fillStyle = ink; cx.font = `600 13px ${tok("--font-data")}`;
+    cx.fillText(`↔ ${String(st.d).replace(".", ",")} m`, (g.mx + g.lx) / 2, 22);
+
+    if (!reduced) requestAnimationFrame(drawSim);
+  }
+
+  function drawHist() {
+    const [w, h] = size(hc, hx);
+    hx.clearRect(0, 0, w, h);
+    const lo = -100, hi = -20;
+    const y = (v) => h - 2 - ((v - lo) / (hi - lo)) * (h - 4);
+    hx.strokeStyle = tok("--line"); hx.lineWidth = 1;
+    [-80, -60, -40].forEach((v) => { hx.beginPath(); hx.moveTo(0, y(v)); hx.lineTo(w, y(v)); hx.stroke(); });
+    const pts = st.hist, n = 120;
+    if (pts.length < 2) return;
+    hx.strokeStyle = tok("--accent"); hx.lineWidth = 2; hx.beginPath();
+    pts.forEach((v, i) => {
+      const x = w - (pts.length - 1 - i) * (w / (n - 1));
+      i ? hx.lineTo(x, y(v)) : hx.moveTo(x, y(v));
+    });
+    hx.stroke();
+    const last = pts[pts.length - 1];
+    hx.fillStyle = tok("--accent"); hx.beginPath(); hx.arc(w - 3, y(last), 3, 0, Math.PI * 2); hx.fill();
+  }
+
+  function tick() {
+    st.jitter = Math.max(-1.5, Math.min(1.5, st.jitter + (Math.random() - 0.5) * 0.8));
+    const v = updateReadout();
+    st.hist.push(v);
+    if (st.hist.length > 120) st.hist.shift();
+    drawHist();
+    if (reduced) drawSim(performance.now());
+  }
+
+  // Controls
+  $("dist").addEventListener("input", (e) => { st.d = +e.target.value; $("distOut").textContent = String(st.d).replace(".", ",") + " m"; tick(); });
+  $("walls").addEventListener("input", (e) => { st.walls = +e.target.value; $("wallsOut").textContent = st.walls; tick(); });
+  $("env").addEventListener("change", (e) => { st.n = +e.target.value; tick(); });
+  const pBtn = $("personBtn");
+  function setPersonBtn() {
+    const onPath = bodyLoss() > BODY * 0.5;
+    pBtn.textContent = onPath ? "Kişiyi aradan çek" : "Kişiyi araya koy";
+  }
+  pBtn.addEventListener("click", () => {
+    const onPath = bodyLoss() > BODY * 0.5;
+    st.px = 0.5; st.py = onPath ? 0.86 : 0.5;
+    setPersonBtn(); tick();
+  });
+
+  let drag = false;
+  cv.addEventListener("pointerdown", (e) => {
+    const r = cv.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    if (Math.hypot(x - st.px * W, y - (st.py * H - 4)) < 48) {
+      drag = true; cv.classList.add("dragging"); cv.setPointerCapture(e.pointerId);
+    }
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const r = cv.getBoundingClientRect();
+    st.px = Math.max(0.04, Math.min(0.96, (e.clientX - r.left) / W));
+    st.py = Math.max(0.16, Math.min(0.88, (e.clientY - r.top) / H));
+    setPersonBtn(); updateReadout();
+    if (reduced) drawSim(performance.now());
+  });
+  const end = () => { drag = false; cv.classList.remove("dragging"); };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+
+  // ---- dBm ladder ----
+  const ladder = [
+    [20, "100 mW", "Modemin yaydığı güç (tipik)"],
+    [0, "1 mW", "dBm ölçeğinin sıfır noktası"],
+    [-30, "1 µW", "Modemin hemen yanında"],
+    [-43, "≈ 50 nW", "<strong>Benim laptopum, evde</strong>"],
+    [-67, "≈ 0,2 nW", "Görüntülü görüşme için önerilen alt sınır"],
+    [-80, "10 pW", "Bağlantı yavaşlar, kopmalar başlar"],
+    [-90, "1 pW", "Ortamdaki gürültü seviyesine yakın"],
+  ];
+  $("ladder").innerHTML = ladder.map(([db, mw, what]) => {
+    const w = ((db + 100) / 120) * 100;
+    return `<div class="rung${db === -43 ? " you" : ""}">
+      <div class="db">${db > 0 ? "+" : ""}${fmt(db)}</div>
+      <div class="bar" style="width:${w}%"></div>
+      <div class="what"><span class="mono">${mw}</span> · ${what}</div>
+    </div>`;
+  }).join("");
+
+  // ---- Path loss chart ----
+  function drawPL() {
+    const svg = $("plChart");
+    const L = 56, R = 120, T = 18, B = 44, VW = 680, VH = 320;
+    const x = (d) => L + ((d - 0) / 30) * (VW - L - R);
+    const y = (v) => T + ((-20 - v) / 80) * (VH - T - B);
+    let s = "";
+    const bands = [[-20, -50, "f-good", 0.10], [-50, -67, "f-ok", 0.10], [-67, -75, "f-warn", 0.12], [-75, -100, "f-bad", 0.10]];
+    bands.forEach(([a, b, c, o]) => { s += `<rect x="${L}" y="${y(a)}" width="${VW - L - R}" height="${y(b) - y(a)}" class="${c}" opacity="${o}"/>`; });
+    for (let v = -20; v >= -100; v -= 20) {
+      s += `<line x1="${L}" x2="${VW - R}" y1="${y(v)}" y2="${y(v)}" class="s-line"/>`;
+      s += `<text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="12">${fmt(v)}</text>`;
+    }
+    for (let d = 0; d <= 30; d += 5) {
+      s += `<line x1="${x(d)}" x2="${x(d)}" y1="${VH - B}" y2="${VH - B + 5}" class="s-muted"/>`;
+      s += `<text x="${x(d)}" y="${VH - B + 20}" text-anchor="middle" font-size="12">${d} m</text>`;
+    }
+    s += `<text x="14" y="${T + 6}" font-size="12" transform="rotate(-90 14 ${T + 6})" text-anchor="end">dBm</text>`;
+    const curve = (n, cls, label) => {
+      let p = "";
+      for (let d = 0.5; d <= 30.01; d += 0.25) {
+        const v = Math.max(-100, PTX - pathLoss(d, n));
+        p += `${p ? "L" : "M"}${x(d).toFixed(1)},${y(v).toFixed(1)}`;
+      }
+      const vEnd = PTX - pathLoss(30, n);
+      return `<path d="${p}" class="${cls}" stroke-width="3"/>` +
+        `<text x="${x(30) + 8}" y="${y(Math.max(-100, vEnd)) + 4}" font-size="13" class="${cls === "s-wave" ? "t-wave" : "t-acc"}">${label}</text>`;
+    };
+    s += curve(2, "s-wave", "Açık alan");
+    s += curve(3, "s-acc", "Ev içi");
+    // Your measurement
+    const d2 = Math.pow(10, (PTX - PL1 + 43) / 20), d3 = Math.pow(10, (PTX - PL1 + 43) / 30);
+    s += `<line x1="${L}" x2="${VW - R}" y1="${y(-43)}" y2="${y(-43)}" class="s-ink" stroke-width="1.5" stroke-dasharray="5 5"/>`;
+    s += `<text x="${VW - R + 8}" y="${y(-43) + 4}" font-size="13" class="t-ink">Benim −43</text>`;
+    [[d2, "f-surface", "s-wave"], [d3, "f-surface", "s-acc"]].forEach(([d, f, st]) => {
+      s += `<circle cx="${x(d)}" cy="${y(-43)}" r="6" class="${f} ${st}" stroke-width="3"/>`;
+    });
+    s += `<text x="${x(d3)}" y="${y(-43) - 12}" text-anchor="middle" font-size="12" class="t-acc">~${d3.toFixed(1).replace(".", ",")} m</text>`;
+    s += `<text x="${x(d2)}" y="${y(-43) - 12}" text-anchor="middle" font-size="12" class="t-wave">~${d2.toFixed(1).replace(".", ",")} m</text>`;
+    svg.innerHTML = s;
+  }
+
+  // ---- CSI vs RSSI ----
+  let csiPerson = false;
+  function channel(person) {
+    // paths: [amplitude, delay in ns]
+    const paths = person
+      ? [[0.42, 0], [0.62, 31], [0.38, 54], [0.33, 19]]
+      : [[1.0, 0], [0.6, 31], [0.35, 54]];
+    const out = [];
+    for (let k = 0; k < 64; k++) {
+      const f = (-40 + (80 * k) / 63) * 1e6;
+      let re = 0, im = 0;
+      paths.forEach(([a, tau]) => { const ph = -2 * Math.PI * f * tau * 1e-9; re += a * Math.cos(ph); im += a * Math.sin(ph); });
+      out.push(Math.hypot(re, im));
+    }
+    return out;
+  }
+  const base = channel(false);
+  const basePow = base.reduce((a, b) => a + b * b, 0) / base.length;
+  function drawCSI() {
+    const amps = channel(csiPerson);
+    const pow = amps.reduce((a, b) => a + b * b, 0) / amps.length;
+    const rssi = Math.round(-43 + 10 * Math.log10(pow / basePow));
+    const maxA = 2.2;
+    let s = "";
+    const bw = 640 / 64;
+    amps.forEach((a, i) => {
+      const h = (a / maxA) * 168;
+      s += `<rect x="${(i * bw + 1).toFixed(1)}" y="${(176 - h).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" class="${csiPerson ? "f-person" : "f-acc"}"/>`;
+    });
+    s += `<line x1="0" x2="640" y1="176" y2="176" class="s-line" stroke-width="2"/>`;
+    $("csiBars").innerHTML = s;
+    const h = ((rssi + 100) / 80) * 150;
+    $("rssiBar").innerHTML =
+      `<rect x="30" y="${170 - h}" width="80" height="${h}" rx="4" class="${csiPerson ? "f-person" : "f-acc"}"/>` +
+      `<text x="70" y="${160 - h}" text-anchor="middle" font-size="20" class="t-ink" style="font-family:var(--font-data);font-weight:600">${fmt(rssi)}</text>` +
+      `<line x1="0" x2="140" y1="170" y2="170" class="s-line" stroke-width="2"/>`;
+    $("csiState").textContent = csiPerson
+      ? `Şu an: araya biri girdi. RSSI ${fmt(rssi)} dBm, desen tamamen değişti.`
+      : "Şu an: oda boş";
+    $("csiBtn").textContent = csiPerson ? "Odayı boşalt" : "Araya insan girsin";
+  }
+  $("csiBtn").addEventListener("click", () => { csiPerson = !csiPerson; drawCSI(); });
+
+  // ---- Boot ----
+  drawPL(); drawCSI();
+  [W, H] = size(cv, cx);
+  setPersonBtn();
+  for (let i = 0; i < 40; i++) { st.jitter = Math.max(-1.5, Math.min(1.5, st.jitter + (Math.random() - 0.5) * 0.8)); st.hist.push(Math.round(rssiNow().value)); }
+  tick();
+  setInterval(tick, 250);
+  requestAnimationFrame(drawSim);
+  window.addEventListener("resize", () => { drawHist(); if (reduced) drawSim(performance.now()); });
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  mq.addEventListener && mq.addEventListener("change", () => { drawHist(); if (reduced) drawSim(performance.now()); });
+})();
+</script>

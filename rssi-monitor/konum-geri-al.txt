@@ -1,0 +1,2 @@
+﻿# Yonetici terminalinde calistir
+Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\location" -Name Value -Value Deny; Stop-Service lfsvc; Set-Service lfsvc -StartupType Disabled; "Geri alindi"

@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ses Sonarı</title>
+<style>
+  :root {
+    --bg: #0d1b2a; --panel: #12263a; --line: #22384d; --text: #f2f6fa; --muted: #8aa0b4;
+    --wave: #22d8ec; --drop: #f5a524; --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 32px; display: grid; gap: 14px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 0; max-width: 70ch; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { background: var(--wave); color: #062029; border: 0; border-radius: 8px; padding: 9px 14px; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+  select, label { color: var(--text); font: 14px system-ui, sans-serif; }
+  select { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .value { font: 600 24px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  #moveCard.on { border-color: var(--drop); background: #2e2410; }
+  #moveCard.on .value { color: var(--drop); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 6px; }
+  .panel h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; }
+  canvas { width: 100%; display: block; border-radius: 8px; background: #08121c; }
+  #profile { height: 190px; }
+  #echo { height: 340px; image-rendering: pixelated; }
+  .axis { display: flex; justify-content: space-between; font: 12px ui-monospace, monospace; color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; }
+  #log { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; max-height: 80px; overflow: auto; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Ses Sonarı</h1>
+      <p class="sub">Hoparlör saniyede 25 kez kısa bir cıvıltı çalar, mikrofon yankıları dinler. Yankının gecikmesi uzaklığı verir: ses 1 metre gidip dönmek için yaklaşık 5,8 ms harcar.</p>
+    </div>
+    <div class="row">
+      <select id="band">
+        <option value="hi">18–21 kHz (çoğu kişi duymaz)</option>
+        <option value="mid" selected>11–17 kHz (hafif cızırtı)</option>
+        <option value="lo">2–8 kHz (duyulur, en güçlü)</option>
+      </select>
+      <label><input type="checkbox" id="motionMode" checked> Hareketi vurgula</label>
+      <button id="start">Sonarı başlat</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="label">Örnekleme</div><div class="value" id="fsOut">–</div></div>
+    <div class="card"><div class="label">Ölçüm / sn</div><div class="value" id="fpsOut">–</div></div>
+    <div class="card"><div class="label">En güçlü yankı</div><div class="value" id="echoOut">–</div></div>
+    <div class="card" id="moveCard"><div class="label">Hareket</div><div class="value" id="moveOut">–</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Yankı profili · yatay: uzaklık, dikey: yankı gücü (anlık)</h2>
+    <canvas id="profile"></canvas>
+    <div class="axis"><span>0 m</span><span>1 m</span><span>2 m</span><span>3 m</span><span>4 m</span></div>
+  </div>
+
+  <div class="panel">
+    <h2 id="echoTitle">Ekogram · yatay: uzaklık (0–4 m), aşağı doğru: zaman (son ~12 sn)</h2>
+    <canvas id="echo"></canvas>
+    <div class="axis"><span>0 m</span><span>1 m</span><span>2 m</span><span>3 m</span><span>4 m</span></div>
+  </div>
+
+  <p class="hint">Ses seviyesini orta-yükseğe al. Windows ses iyileştirmeleri yankıları bozabilir. Kediler ve köpekler yüksek frekansları duyar; evcil hayvan varsa uzun süre açık bırakma.</p>
+  <pre id="log"></pre>
+</main>
+
+<script>
+const C = 343;            // speed of sound, m/s
+const MAXD = 4.0;         // metres shown
+const PERIOD = 0.04;      // one chirp every 40 ms
+const CHIRP = 0.01;       // chirp length 10 ms
+const PRE = 12;           // samples kept before the direct-path peak
+const BINS = 240;
+const ROWS = 300;
+const BANDS = { hi: [18000, 21000], mid: [11000, 17000], lo: [2000, 8000] };
+
+const $ = (id) => document.getElementById(id);
+const log = (s) => { $("log").textContent = (s + "\n" + $("log").textContent).slice(0, 3000); };
+
+let ctx = null, stream = null;
+let fs, Np, Nc, Lmax, tplI, tplQ;
+let ring, RING, total = 0, framePos = 0, p0 = null, frames = 0, fpsCount = 0, fpsT = 0;
+let bg = null, directRef = 1, calib = [];
+
+// ---- signal design ----
+function design(f0, f1) {
+  Nc = Math.round(CHIRP * fs);
+  Np = Math.round(PERIOD * fs);
+  Lmax = Math.ceil(((2 * MAXD) / C) * fs);
+  const chirp = new Float32Array(Np);
+  tplI = new Float32Array(Nc); tplQ = new Float32Array(Nc);
+  const k = (f1 - f0) / CHIRP;
+  for (let n = 0; n < Nc; n++) {
+    const t = n / fs;
+    const ph = 2 * Math.PI * (f0 * t + 0.5 * k * t * t);
+    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (Nc - 1));
+    chirp[n] = 0.9 * w * Math.sin(ph);
+    tplI[n] = w * Math.sin(ph);
+    tplQ[n] = w * Math.cos(ph);
+  }
+  RING = Np * 16;
+  ring = new Float32Array(RING);
+  return chirp;
+}
+
+// magnitude of the quadrature matched filter at absolute sample position `pos`
+function corrAt(pos) {
+  let i = 0, q = 0;
+  for (let n = 0; n < Nc; n++) {
+    const v = ring[(pos + n) % RING];
+    i += v * tplI[n]; q += v * tplQ[n];
+  }
+  return Math.hypot(i, q);
+}
+
+// ---- processing ----
+const prof = new Float32Array(BINS);
+function processFrame(start) {
+  // Find the direct speaker-to-mic peak once and lock onto it. Some laptops
+  // (audio effect software) play a second, delayed copy of the sound; the
+  // direct path is the EARLIEST strong peak, not necessarily the loudest.
+  if (p0 === null) {
+    const mags = new Float32Array(Np);
+    let best = 0;
+    for (let l = 0; l < Np; l++) { mags[l] = corrAt(start + l); best = Math.max(best, mags[l]); }
+    // the period wraps, so start scanning right after the quietest point
+    let quiet = 0; for (let l = 0; l < Np; l++) if (mags[l] < mags[quiet]) quiet = l;
+    for (let j = 1; j <= Np; j++) {
+      const l = (quiet + j) % Np;
+      if (mags[l] >= 0.5 * best) {
+        let arg = l;
+        for (let u = l; u < l + 20; u++) if (mags[u % Np] > mags[arg % Np]) arg = u % Np;
+        p0 = arg; directRef = mags[arg];
+        break;
+      }
+    }
+    const second = [...mags].map((m, l) => ({ m, l })).filter((x) => Math.abs(x.l - p0) > 40 && x.m > 0.5 * best);
+    log(`# doğrudan yol: ${p0} örnek` + (second.length ? ` · ${((((second[0].l - p0 + Np) % Np) / fs) * 1000).toFixed(1)} ms sonra ikinci bir kopya var (ses efekti?)` : ""));
+  } else {
+    let best = 0, arg = p0;
+    for (let l = p0 - 4; l <= p0 + 4; l++) { const m = corrAt(start + l); if (m > best) { best = m; arg = l; } }
+    p0 = arg;
+    if (best < 0.3 * directRef) { p0 = null; bg = null; calib = []; log("# doğrudan yol kayboldu, yeniden aranıyor"); return; }
+  }
+  const direct = corrAt(start + p0) || 1;
+
+  prof.fill(0);
+  for (let k = 0; k <= Lmax; k++) {
+    const m = corrAt(start + p0 + k) / direct;
+    const d = (k / fs) * C / 2;
+    const b = Math.min(BINS - 1, Math.floor((d / MAXD) * BINS));
+    if (m > prof[b]) prof[b] = m;
+  }
+  if (!bg) bg = Float32Array.from(prof);
+  const diff = new Float32Array(BINS);
+  for (let b = 0; b < BINS; b++) { diff[b] = Math.abs(prof[b] - bg[b]); bg[b] = bg[b] * 0.96 + prof[b] * 0.04; }
+  frames++; fpsCount++;
+  render(prof, diff);
+}
+
+// ---- drawing ----
+function color(t) {
+  t = Math.max(0, Math.min(1, t));
+  const s = [[8, 18, 28], [16, 90, 120], [34, 216, 236], [240, 230, 110], [245, 165, 36]];
+  const x = t * (s.length - 1), i = Math.min(s.length - 2, Math.floor(x)), f = x - i;
+  return s[i].map((c, k) => Math.round(c + (s[i + 1][k] - c) * f));
+}
+const echo = $("echo"), ectx = echo.getContext("2d");
+echo.width = BINS; echo.height = ROWS;
+const rowImg = ectx.createImageData(BINS, 1);
+const minBin = Math.ceil((0.35 / MAXD) * BINS); // ignore the direct-path blob
+let lastUi = 0, motion = { score: 0, dist: null }, strongest = null;
+
+function render(p, diff) {
+  const useMotion = $("motionMode").checked;
+  const src = useMotion ? diff : p;
+  let mx = 1e-6; for (let b = minBin; b < BINS; b++) mx = Math.max(mx, src[b]);
+  const scale = useMotion ? Math.max(mx, 0.02) : mx;
+  ectx.drawImage(echo, 0, 0, BINS, ROWS - 1, 0, 1, BINS, ROWS - 1);
+  for (let b = 0; b < BINS; b++) {
+    const v = b < minBin && useMotion ? 0 : src[b] / scale;
+    rowImg.data.set([...color(useMotion ? v : Math.sqrt(v)), 255], b * 4);
+  }
+  ectx.putImageData(rowImg, 0, 0);
+
+  // stats
+  let sb = minBin; for (let b = minBin; b < BINS; b++) if (p[b] > p[sb]) sb = b;
+  strongest = ((sb + 0.5) / BINS) * MAXD;
+  let sum = 0, mb = minBin; for (let b = minBin; b < BINS; b++) { sum += diff[b]; if (diff[b] > diff[mb]) mb = b; }
+  motion = { score: sum * 10, dist: ((mb + 0.5) / BINS) * MAXD };
+  // first ~3 s after start (frames 25-100): learn the quiet-room level
+  if (frames > 25 && frames <= 100) {
+    calib.push(motion.score);
+    if (frames === 100) {
+      const s = [...calib].sort((a, b) => a - b), med = s[Math.floor(s.length / 2)], p90 = s[Math.floor(s.length * 0.9)];
+      moveThr = Math.max(med * 3, p90 * 1.5, 0.5);
+      log(`# sakin oda seviyesi ${med.toFixed(2)}, hareket eşiği ${moveThr.toFixed(2)}`);
+    }
+  }
+
+  const now = performance.now();
+  if (now - lastUi > 80) {
+    lastUi = now;
+    drawProfile(p, diff);
+    $("echoOut").textContent = strongest.toFixed(2) + " m";
+    const on = frames > 100 && motion.score > moveThr;
+    $("moveCard").className = "card" + (on ? " on" : "");
+    $("moveOut").textContent = frames <= 100 ? "ayarlanıyor…" : on ? `~${motion.dist.toFixed(2)} m` : "yok";
+  }
+  if (now - fpsT > 1000) {
+    $("fpsOut").textContent = Math.round((fpsCount * 1000) / (now - fpsT));
+    fpsCount = 0; fpsT = now;
+    report();
+  }
+}
+let moveThr = 1.5;
+
+function drawProfile(p, diff) {
+  const c = $("profile"), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  g.strokeStyle = "#22384d";
+  for (let m = 1; m < 4; m++) { const x = (m / MAXD) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  let mx = 1e-6; for (let b = minBin; b < BINS; b++) mx = Math.max(mx, p[b]);
+  const line = (arr, col, s) => {
+    g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+    for (let b = 0; b < BINS; b++) { const x = (b / (BINS - 1)) * w, y = h - 4 - Math.min(1, arr[b] / s) * (h - 10); b ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.stroke();
+  };
+  line(p, "#22d8ec", mx);
+  line(diff, "#f5a524", Math.max(mx * 0.5, 0.02));
+  g.fillStyle = "#8aa0b4"; g.font = "12px system-ui";
+  g.fillText("turkuaz: yankı · turuncu: değişen yankı (hareket)", 8, 14);
+}
+
+// ---- reporting to the local server ----
+let lastSnap = 0;
+function report() {
+  const stat = {
+    t: new Date().toISOString(), fs, band: $("band").value, p0,
+    strongest: strongest && +strongest.toFixed(2),
+    motionScore: +motion.score.toFixed(2), motionDist: motion.dist && +motion.dist.toFixed(2),
+    threshold: +moveThr.toFixed(2), moving: frames > 100 && motion.score > moveThr,
+    profile: Array.from(prof, (v) => +v.toFixed(3)),
+  };
+  fetch("/stat", { method: "POST", body: JSON.stringify(stat) }).catch(() => {});
+  if (performance.now() - lastSnap > 5000) {
+    lastSnap = performance.now();
+    const big = document.createElement("canvas"); big.width = BINS * 3; big.height = ROWS;
+    const g = big.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(echo, 0, 0, big.width, big.height);
+    fetch("/snapshot", { method: "POST", body: big.toDataURL("image/png") }).catch(() => {});
+  }
+}
+
+// ---- audio ----
+const WORKLET = `class Cap extends AudioWorkletProcessor {
+  process(inputs) { const c = inputs[0] && inputs[0][0]; if (c) this.port.postMessage(c.slice(0)); return true; }
+}
+registerProcessor("cap", Cap);`;
+
+async function start() {
+  if (ctx) { await ctx.close(); ctx = null; stream && stream.getTracks().forEach((t) => t.stop()); $("start").textContent = "Sonarı başlat"; return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    });
+  } catch (e) { log("Mikrofon izni alınamadı: " + e.message); return; }
+  ctx = new AudioContext({ latencyHint: "interactive" });
+  fs = ctx.sampleRate;
+  $("fsOut").textContent = (fs / 1000).toFixed(1) + " kHz";
+  const [f0, f1] = BANDS[$("band").value];
+  const chirp = design(f0, Math.min(f1, fs / 2 - 500));
+  total = 0; framePos = 0; p0 = null; frames = 0; bg = null; calib = []; moveThr = 1.5; fpsT = performance.now();
+
+  const buf = ctx.createBuffer(1, Np, fs); buf.copyToChannel(chirp, 0);
+  const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+  src.connect(ctx.destination);
+
+  const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+  await ctx.audioWorklet.addModule(url);
+  const mic = ctx.createMediaStreamSource(stream);
+  const cap = new AudioWorkletNode(ctx, "cap");
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  mic.connect(cap).connect(mute).connect(ctx.destination);
+  cap.port.onmessage = (e) => {
+    const d = e.data;
+    for (let i = 0; i < d.length; i++) ring[(total + i) % RING] = d[i];
+    total += d.length;
+    while (total - framePos >= 2 * Np + Nc + Lmax && total - framePos < RING - Np) { processFrame(framePos); framePos += Np; }
+    if (total - framePos >= RING - Np) framePos = total - 2 * Np - Nc - Lmax; // fell behind: skip ahead
+  };
+  src.start();
+  log(`# başladı: ${(f0 / 1000).toFixed(0)}–${(Math.min(f1, fs / 2 - 500) / 1000).toFixed(1)} kHz, ${fs} Hz örnekleme`);
+  $("start").textContent = "Durdur";
+}
+$("start").onclick = start;
+$("band").onchange = () => { if (ctx) { start().then(start); } };
+</script>
+</body>
+</html>

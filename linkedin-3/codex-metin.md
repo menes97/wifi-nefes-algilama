@@ -1,0 +1,32 @@
+## Önerilen gönderi metni
+
+WiFi, odada durduğum dört noktayı %80 doğrulukla tahmin etti.  
+Ama bir noktada sonuç %47’ye düştü.
+
+Geçen bölümün sonunda “konum mu, hareketle ışık mı?” diye sormuştum; bu kez konumu seçtim.
+
+Aynı ESP32 ve ev modemiyle devam ettim. ESP32 saniyede 100 ping gönderiyor; gelen cevaplarda 52 alt taşıyıcının sinyal gücünü okuyorum. Bir noktada durduğumda sinyalin duvarlardan, eşyalardan ve vücudumdan yansıma yolları değişiyor. Bu değişim, o nokta için tekrar tanınabilen bir “parmak izi” gibi.
+
+Odanın kuşbakışı planında dört nokta öğrettim. Her birinde 15 saniye kıpırdamadan durdum. Sonra kayıtların ilk yarısıyla sistemi eğitip ikinci yarısıyla sınadım: 60 tahminin 48’i doğruydu. Dört seçenek arasında rastgele tahminin şans seviyesi %25.
+
+En iyi sonuç Orta’da %100 (15/15). En zayıfı Sağ arka: %47 (7/15); çoğunlukla Orta ön ile karıştı. O kayıtta biraz hareket etmiş olabilirim. Görselde dört noktanın sonuçlarını oda planı üzerinde görebilirsiniz.
+
+Bu, odanın tamamını gösteren bir harita değil; yalnızca öğrettiğim noktalardan hangisinde durduğumu tahmin ediyor. Yürürken tahmin dalgalanıyor. Gizlilik açısından deneyi kendi odamda, ev modemim ve ESP32 ile sınırlı tutuyorum.
+
+Sizce önce Sağ arka kaydını yeniden mi almalıyım, yoksa yürürken mi denemeliyim?
+
+#ESP32 #WiFiCSI #Maker #EvdeDeney #KonumTahmini
+
+## Alternatif ilk 2 satır
+
+**1**  
+Dört noktadan hangisinde durduğumu WiFi sinyalinden tahmin etmeyi denedim.  
+Sonuç %80 doğru çıktı; ama bir nokta belirgin biçimde zorladı.
+
+**2**  
+Evdeki modem ve ESP32 ile küçük bir konum deneyi yaptım.  
+60 tahminin 48’i doğruydu; en zayıf noktada başarı %47’ye indi.
+
+**3**  
+WiFi sinyalindeki değişimler odada durduğum yeri ele verebilir mi?  
+Dört öğretilmiş noktada %80 doğruluğa ulaştım; hatalar da ilginçti.

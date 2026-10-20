@@ -1,0 +1,15 @@
+WiFi sinyalinden odada biri olduğunu anlayabilir miyim diye evde denedim. Modemle laptop arasında durunca sinyal −43'ten −50 dBm'e düştü; hızlı geçişleri ise yakalayamadım. Videodaki ekran kaydı o anın gerçek ölçümü.
+
+Laptopun aldığı sinyal gücünü (RSSI) okuyan küçük bir Node.js aracı yazıp canlı grafik çizdim.
+
+Ölçtüğüm −43 dBm, modemin 100 mW güçle yayın yaptığı varsayımıyla, yayılan gücün yaklaşık 2 milyonda biri.
+
+Asıl sürpriz ölçümün yenilenme hızıydı: Windows, bağlı olduğum ağın RSSI değerini her okumada güncellemiyordu. 16 saniye boyunca saniyede 4 kez okudum; değer hiç değişmedi. Ping trafiği de işe yaramadı. WiFi taraması tetikleyince yeni değer geldi, ancak yaklaşık 5 saniyede bir.
+
+Bu kurulumda birkaç saniye duran birinin sinyale etkisini görebildim. Sıradaki denemem, ESP32 ile sinyali CSI üzerinden daha ayrıntılı incelemek.
+
+Hazırladığım interaktif sayfada insan figürünü sürükleyip RSSI'nin nasıl değiştiğini görebilirsiniz: https://claude.ai/artifact/3MHd127irUCNBuFx6Q6Ya3
+
+Siz olsanız sonraki denemede neyi ölçerdiniz?
+
+#WiFi #RSSI #ESP32 #IoT

@@ -1,0 +1,27 @@
+# --- Gizli bilgiler: WiFi adı, şifresi, modem MAC adresi ---
+esp32-csi/csi_recv/secrets.h
+# Derlenmiş program (şifre içine gömülü)
+esp32-csi/csi_recv/build/
+
+# --- Ham ölçüm verileri (nefes, konum, sinyal kayıtları) ---
+*.jsonl
+*.csv
+esp32-csi/viewer/zones.json
+esp32-csi/viewer/snapshots/
+linkedin-2/olcum-*.json
+ses-sonari/ekogram.png
+# Ham ekran kayıtları ve ekran görüntüleri (masaüstü, ağ adı görünebilir)
+linkedin/kayit/
+# Ölçüm verisinden üretilen ara sayfalar (build-*.js ile yeniden üretilir)
+linkedin-2/chart.html
+linkedin-3/map.html
+
+# --- Bilgisayara özel ayarlar ve araç kayıtları (klasör yolları, kullanıcı adı) ---
+.claude/
+*.log
+linkedin/image-answer.md
+
+# --- Diğer ---
+node_modules/
+# Render çıktıları (video linkedin/rssi-linkedin.mp4 olarak zaten var)
+linkedin-video/out/

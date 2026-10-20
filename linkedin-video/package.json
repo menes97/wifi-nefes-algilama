@@ -1,0 +1,8 @@
+{
+  "name": "rssi-linkedin-video",
+  "private": true,
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts RssiVideo out/rssi-linkedin.mp4"
+  }
+}

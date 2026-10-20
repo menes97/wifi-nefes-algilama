@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WiFi CSI İzleyici</title>
+<style>
+  :root {
+    --bg: #0d1b2a; --panel: #12263a; --line: #22384d; --text: #f2f6fa; --muted: #8aa0b4;
+    --wave: #22d8ec; --drop: #f5a524; --ok: #3ecf8e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 18px 16px 32px; display: grid; gap: 14px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { background: var(--wave); color: #062029; border: 0; border-radius: 8px; padding: 9px 14px; font: 600 15px system-ui, sans-serif; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .value { font: 600 26px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  #state.on { border-color: var(--drop); background: #2e2410; }
+  #state.on .value { color: var(--drop); }
+  #state.off .value { color: var(--ok); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 6px; }
+  .panel h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; }
+  canvas { width: 100%; display: block; border-radius: 8px; background: #08121c; }
+  #fall { height: 330px; image-rendering: pixelated; }
+  #profile, #score { height: 150px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+  .breath { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .breath { grid-template-columns: 1fr; } }
+  #breathWave { height: 140px; }
+  #breathSpec { height: 90px; }
+  select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+  .pacer { height: 150px; display: grid; place-items: center; position: relative; }
+  #pacerDot { width: 120px; height: 120px; border-radius: 50%; background: var(--wave); opacity: .85; }
+  #pacerText { position: absolute; font-weight: 700; color: #062029; }
+  .zones { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .zones { grid-template-columns: 1fr; } }
+  #roomGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; aspect-ratio: 4 / 3; border: 2px solid var(--line); border-top: 4px solid var(--wave); border-radius: 10px; padding: 6px; }
+  .cell { background: #0b1622; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font: 13px system-ui; display: grid; place-items: center; text-align: center; cursor: pointer; transition: background .25s, border-color .25s; }
+  .cell.sel { border-color: var(--wave); color: var(--text); }
+  .cell.trained { color: var(--text); }
+  .cell.hot { background: #3b2a0e; border-color: var(--drop); color: var(--drop); font-weight: 700; }
+  #log { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); white-space: pre-wrap; max-height: 70px; overflow: auto; margin: 0; }
+  .hint { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>WiFi CSI İzleyici</h1>
+      <p class="sub">ESP32, modemden gelen her paketin 52 alt taşıyıcısını ayrı ayrı ölçüyor.</p>
+    </div>
+    <div class="row">
+      <button id="connect">ESP32'ye bağlan</button>
+      <button class="ghost" id="calib" disabled>Boş oda kalibrasyonu (10 sn)</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card"><div class="label">Paket / sn</div><div class="value" id="rate">–</div></div>
+    <div class="card"><div class="label">RSSI</div><div class="value" id="rssi">–</div></div>
+    <div class="card"><div class="label">Hareket skoru</div><div class="value" id="scoreVal">–</div><div class="hint" id="thr">kalibrasyon yok</div></div>
+    <div class="card off" id="state"><div class="label">Durum</div><div class="value" id="stateText">Bekleniyor</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Şelale · yatay: 52 alt taşıyıcı (−26 … +26), aşağı doğru: zaman (son ~6 sn), renk: genlik</h2>
+    <canvas id="fall"></canvas>
+  </div>
+
+  <div class="two">
+    <div class="panel">
+      <h2>Anlık alt taşıyıcı profili</h2>
+      <canvas id="profile"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Hareket skoru · son 30 sn</h2>
+      <canvas id="score"></canvas>
+    </div>
+  </div>
+
+  <div class="breath">
+    <div class="panel">
+      <h2>Nefes dalgası · son 30 sn (0,1–0,7 Hz bandı)</h2>
+      <canvas id="breathWave"></canvas>
+      <canvas id="breathSpec"></canvas>
+      <p class="hint">Alttaki grafik nefes bandındaki güç: tepe noktası nefes hızın. En az 30 sn kıpırdamadan otur.</p>
+    </div>
+    <div class="panel" style="align-content:start">
+      <h2>Nefes hızı</h2>
+      <div class="value" id="bpm" style="font-size:44px">–</div>
+      <div class="hint" id="bpmInfo">veri toplanıyor…</div>
+      <h2 style="margin-top:12px">Rehberli nefes (kontrol için)</h2>
+      <select id="pace">
+        <option value="0">Kapalı</option>
+        <option value="6">6 / dk (5 sn al, 5 sn ver)</option>
+        <option value="10">10 / dk (3 sn al, 3 sn ver)</option>
+        <option value="15">15 / dk (2 sn al, 2 sn ver)</option>
+      </select>
+      <div class="pacer"><div id="pacerDot"></div><span id="pacerText"></span></div>
+    </div>
+  </div>
+
+  <div class="zones">
+    <div class="panel" style="align-content:start">
+      <h2>Oda haritası · kuşbakışı (üst kenar = modemin olduğu duvar)</h2>
+      <div id="roomGrid"></div>
+      <div class="hint" id="zoneInfo">Bir kare seç, "Bu kareyi öğret"e bas, 5 sn içinde o noktaya geç ve bip sesine kadar kıpırdamadan dur.</div>
+    </div>
+    <div class="panel" style="align-content:start">
+      <h2>Tahmin</h2>
+      <div class="value" id="zoneGuess" style="font-size:30px">–</div>
+      <div class="hint" id="zoneConf">en az iki yer öğretilmeli</div>
+      <div class="row" style="margin-top:12px">
+        <button id="teachCell">Bu kareyi öğret (15 sn)</button>
+        <button class="ghost" id="teachEmpty">Boş odayı öğret (15 sn)</button>
+        <button class="ghost" id="resetZones">Sıfırla</button>
+      </div>
+    </div>
+  </div>
+
+  <pre id="log"></pre>
+</main>
+
+<script>
+const N_RAW = 64;
+// The firmware sends L-LTF amplitudes in -32..31 order. Indices 6..31 and 33..58
+// are the 52 data subcarriers (-26..-1, 1..26); the rest are guard bands and DC.
+const ACTIVE_RAW = [...Array(26).keys()].map((i) => i + 6).concat([...Array(26).keys()].map((i) => i + 33));
+const N = ACTIVE_RAW.length;
+const FALL_ROWS = 600;           // ~6 s at 100 pkt/s
+const SCORE_WIN = 50;            // packets per motion window (~0.5 s)
+const SCORE_KEEP_MS = 30_000;
+
+const $ = (id) => document.getElementById(id);
+const logEl = $("log");
+const log = (s) => { logEl.textContent = (s + "\n" + logEl.textContent).slice(0, 2000); };
+
+const active = [...Array(N).keys()];
+const recent = [];               // last SCORE_WIN amplitude vectors (display order)
+const scores = [];               // {t, v}
+let pktCount = 0, totalPkts = 0, lastRateT = performance.now();
+let baseline = null, threshold = 8, calibrating = null;
+let maxAmp = 30;
+
+// ---------- waterfall ----------
+const fall = $("fall"), fctx = fall.getContext("2d");
+fall.width = N; fall.height = FALL_ROWS;
+const row = fctx.createImageData(N, 1);
+
+function color(t) {
+  // navy -> turquoise -> yellow -> orange
+  t = Math.max(0, Math.min(1, t));
+  const stops = [[8, 18, 28], [16, 90, 120], [34, 216, 236], [240, 230, 110], [245, 165, 36]];
+  const x = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)), f = x - i;
+  return stops[i].map((c, k) => Math.round(c + (stops[i + 1][k] - c) * f));
+}
+
+function pushRow(amp) {
+  fctx.drawImage(fall, 0, 0, N, FALL_ROWS - 1, 0, 1, N, FALL_ROWS - 1);
+  for (let i = 0; i < N; i++) {
+    const [r, g, b] = color(amp[i] / maxAmp);
+    row.data.set([r, g, b, 255], i * 4);
+  }
+  fctx.putImageData(row, 0, 0);
+}
+
+// ---------- line charts ----------
+function setup(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return [ctx, w, h];
+}
+
+function drawProfile(amp) {
+  const [ctx, w, h] = setup($("profile"));
+  ctx.strokeStyle = "#22384d";
+  for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.moveTo(0, (h * k) / 4); ctx.lineTo(w, (h * k) / 4); ctx.stroke(); }
+  ctx.strokeStyle = "#22d8ec"; ctx.lineWidth = 2; ctx.beginPath();
+  amp.forEach((a, i) => {
+    const x = (i / (N - 1)) * w, y = h - 6 - (a / maxAmp) * (h - 12);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+}
+
+function drawScores() {
+  const [ctx, w, h] = setup($("score"));
+  if (!scores.length) return;
+  const now = scores[scores.length - 1].t;
+  const top = Math.max(threshold * 2, ...scores.map((s) => s.v)) * 1.1;
+  const y = (v) => h - 4 - (v / top) * (h - 8);
+  ctx.strokeStyle = "#f5a524"; ctx.setLineDash([5, 5]); ctx.beginPath();
+  ctx.moveTo(0, y(threshold)); ctx.lineTo(w, y(threshold)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = "#22d8ec"; ctx.lineWidth = 2; ctx.beginPath();
+  scores.forEach((s, i) => {
+    const x = w - ((now - s.t) / SCORE_KEEP_MS) * w;
+    i ? ctx.lineTo(x, y(s.v)) : ctx.moveTo(x, y(s.v));
+  });
+  ctx.stroke();
+}
+
+// ---------- motion score ----------
+// Sum of per-subcarrier std over the last window, divided by the sum of means, x100.
+// Using sums keeps weak (faded) subcarriers from dominating the score.
+function motionScore() {
+  if (recent.length < SCORE_WIN) return null;
+  let sumStd = 0, sumMean = 0;
+  for (const i of active) {
+    let m = 0, s = 0;
+    for (const v of recent) m += v[i];
+    m /= recent.length;
+    for (const v of recent) s += (v[i] - m) ** 2;
+    sumStd += Math.sqrt(s / recent.length);
+    sumMean += m;
+  }
+  return (sumStd / sumMean) * 100;
+}
+
+let lastDraw = 0;
+function onPacket(rssi, raw) {
+  // The receiver's automatic gain control rescales whole packets from one
+  // packet to the next. Dividing by the packet's own mean removes that, so
+  // only changes in the shape across subcarriers remain.
+  const rawAmp = ACTIVE_RAW.map((i) => raw[i]);
+  const pm = rawAmp.reduce((a, b) => a + b, 0) / N;
+  if (pm < 1) return;
+  const amp = rawAmp.map((a) => (a / pm) * 10);
+  pktCount++; totalPkts++;
+  breathAccumulate(amp);
+  zoneAccumulate(amp);
+  recent.push(amp);
+  if (recent.length > SCORE_WIN) recent.shift();
+  maxAmp = 25; // amplitudes are normalized to a packet mean of 10
+  pushRow(amp);
+
+  const now = performance.now();
+  const sc = motionScore();
+  if (sc !== null && (!scores.length || now - scores[scores.length - 1].t > 100)) {
+    scores.push({ t: now, v: sc });
+    while (scores.length && scores[0].t < now - SCORE_KEEP_MS) scores.shift();
+    if (calibrating) {
+      calibrating.push(sc);
+      if (now >= calibrating.end) finishCalibration();
+    }
+  }
+
+  if (now - lastDraw > 66) {
+    lastDraw = now;
+    $("rssi").textContent = rssi + " dBm";
+    drawProfile(amp);
+    drawScores();
+    if (sc !== null) {
+      $("scoreVal").textContent = sc.toFixed(1);
+      const on = !calibrating && sc > threshold;
+      $("state").className = "card " + (on ? "on" : "off");
+      $("stateText").textContent = calibrating ? "Kalibre ediliyor" : on ? "Hareket var" : "Sakin";
+    }
+  }
+  if (now - lastRateT > 1000) {
+    const rate = Math.round((pktCount * 1000) / (now - lastRateT));
+    $("rate").textContent = rate;
+    pktCount = 0; lastRateT = now;
+    analyzeBreath(sc);
+    report(rate, rssi, sc, amp);
+  }
+}
+
+// ---------- breathing ----------
+// Packets are averaged into 10 Hz samples; the last 60 s are kept per subcarrier.
+// Every second, each subcarrier's spectrum in the breathing band is computed;
+// the subcarriers with the most periodic energy are combined and the peak gives the rate.
+const BR_FS = 10, BR_LEN = 600, BR_MIN = 300;
+const BR_FMIN = 0.1, BR_FMAX = 0.7;
+const brBuf = [];
+let brAcc = new Float64Array(N), brN = 0, brT = performance.now();
+let breath = { bpm: null, conf: 0, wave: [], spec: [], freqs: [] };
+
+function breathAccumulate(amp) {
+  for (let i = 0; i < N; i++) brAcc[i] += amp[i];
+  brN++;
+  const now = performance.now();
+  if (now - brT >= 1000 / BR_FS) {
+    brBuf.push(Float32Array.from(brAcc, (v) => v / brN));
+    if (brBuf.length > BR_LEN) brBuf.shift();
+    brAcc = new Float64Array(N); brN = 0; brT = now;
+  }
+}
+
+function detrend(x) {
+  const L = x.length, mx = (L - 1) / 2;
+  let my = 0; for (const v of x) my += v; my /= L;
+  let num = 0, den = 0;
+  for (let t = 0; t < L; t++) { num += (t - mx) * (x[t] - my); den += (t - mx) ** 2; }
+  const b = num / den;
+  return x.map((v, t) => v - my - b * (t - mx));
+}
+
+function analyzeBreath(motion) {
+  const L = brBuf.length;
+  if (L < BR_MIN) {
+    $("bpmInfo").textContent = `veri toplanıyor… ${Math.round(L / BR_FS)}/${BR_MIN / BR_FS} sn`;
+    return;
+  }
+  const dur = L / BR_FS;
+  const kMin = Math.ceil(BR_FMIN * dur), kMax = Math.floor(BR_FMAX * dur);
+  const hann = Array.from({ length: L }, (_, t) => 0.5 - 0.5 * Math.cos((2 * Math.PI * t) / (L - 1)));
+  const cand = [];
+  for (let i = 0; i < N; i++) {
+    const x = detrend(Array.from(brBuf, (r) => r[i]));
+    let varx = 0; for (const v of x) varx += v * v;
+    if (varx === 0) continue;
+    const spec = [];
+    for (let k = kMin; k <= kMax; k++) {
+      let re = 0, im = 0;
+      const w = (2 * Math.PI * k) / L;
+      for (let t = 0; t < L; t++) { const v = x[t] * hann[t]; re += v * Math.cos(w * t); im -= v * Math.sin(w * t); }
+      spec.push((re * re + im * im) / varx);
+    }
+    cand.push({ i, x, spec, peak: Math.max(...spec) });
+  }
+  cand.sort((a, b) => b.peak - a.peak);
+  const top = cand.slice(0, 8);
+  if (!top.length) return;
+  const comb = top[0].spec.map((_, j) => top.reduce((a, c) => a + c.spec[j], 0));
+  let j = comb.indexOf(Math.max(...comb));
+  // parabolic interpolation between bins
+  let off = 0;
+  if (j > 0 && j < comb.length - 1) {
+    const a = comb[j - 1], b = comb[j], c = comb[j + 1];
+    off = (0.5 * (a - c)) / (a - 2 * b + c || 1);
+  }
+  const f = (kMin + j + off) / dur;
+  const sorted = [...comb].sort((a, b) => a - b);
+  const conf = comb[j] / (sorted[Math.floor(sorted.length / 2)] || 1);
+
+  // waveform: sign-aligned average of the top subcarriers, smoothed over 1 s
+  const ref = top[0].x;
+  const wave = new Array(L).fill(0);
+  for (const c of top) {
+    let dot = 0; for (let t = 0; t < L; t++) dot += c.x[t] * ref[t];
+    const s = dot >= 0 ? 1 : -1;
+    for (let t = 0; t < L; t++) wave[t] += s * c.x[t];
+  }
+  const smooth = wave.map((_, t) => {
+    let a = 0, n = 0;
+    for (let u = Math.max(0, t - 5); u <= Math.min(L - 1, t + 5); u++) { a += wave[u]; n++; }
+    return a / n;
+  });
+
+  const still = motion === null || motion < threshold;
+  breath = {
+    bpm: still && conf >= 4 ? f * 60 : null, conf, rawBpm: f * 60,
+    wave: smooth.slice(-300), spec: comb, freqs: comb.map((_, q) => ((kMin + q) / dur) * 60),
+  };
+  $("bpm").textContent = breath.bpm ? `${breath.bpm.toFixed(1)} /dk` : "–";
+  $("bpmInfo").textContent = !still
+    ? "Hareket var: nefes için kıpırdamadan otur"
+    : conf >= 4
+    ? `güven ${conf.toFixed(1)} · ${dur.toFixed(0)} sn veri`
+    : `belirgin ritim yok (güven ${conf.toFixed(1)}, en olası ${(f * 60).toFixed(1)} /dk)`;
+  drawBreath();
+}
+
+function drawBreath() {
+  {
+    const [ctx, w, h] = setup($("breathWave"));
+    const v = breath.wave;
+    if (v.length > 1) {
+      const lo = Math.min(...v), hi = Math.max(...v), r = hi - lo || 1;
+      ctx.strokeStyle = "#22d8ec"; ctx.lineWidth = 2.5; ctx.beginPath();
+      v.forEach((y, t) => {
+        const X = (t / (v.length - 1)) * w, Y = h - 8 - ((y - lo) / r) * (h - 16);
+        t ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+      });
+      ctx.stroke();
+    }
+  }
+  {
+    const [ctx, w, h] = setup($("breathSpec"));
+    const s = breath.spec, fr = breath.freqs;
+    if (!s.length) return;
+    const mx = Math.max(...s);
+    const bw = w / s.length;
+    s.forEach((p, q) => {
+      const bh = (p / mx) * (h - 18);
+      ctx.fillStyle = p === mx ? "#f5a524" : "#1f6f86";
+      ctx.fillRect(q * bw + 1, h - 14 - bh, bw - 2, bh);
+    });
+    ctx.fillStyle = "#8aa0b4"; ctx.font = "11px system-ui";
+    [6, 12, 18, 24, 30, 36].forEach((b) => {
+      const q = fr.findIndex((x) => x >= b);
+      if (q >= 0) ctx.fillText(b + "/dk", q * bw, h - 2);
+    });
+  }
+}
+
+// ---------- room zones (fingerprinting) ----------
+// Every 0.5 s the mean normalized amplitude of each subcarrier becomes one
+// feature vector. Standing at a spot changes the multipath pattern in a
+// repeatable way, so a k-nearest-neighbour vote over labelled vectors
+// tells which trained spot is closest.
+const CELLS = ["Sol arka", "Orta arka", "Sağ arka", "Sol orta", "Orta", "Sağ orta", "Sol ön", "Orta ön", "Sağ ön"];
+const EMPTY = -1;
+let zoneSum = new Float64Array(N), zoneN = 0, zoneT = performance.now();
+let samples = [];            // {label, f}
+let selCell = 4, recording = null, guesses = [];
+try { samples = JSON.parse(localStorage.getItem("csiZones") || "[]"); } catch {}
+
+const grid = $("roomGrid");
+CELLS.forEach((name, i) => {
+  const d = document.createElement("div");
+  d.className = "cell"; d.id = "cell" + i;
+  d.onclick = () => { selCell = i; drawCells(null); };
+  grid.appendChild(d);
+});
+
+function counts() {
+  const c = {}; for (const s of samples) c[s.label] = (c[s.label] || 0) + 1; return c;
+}
+
+function drawCells(hot) {
+  const c = counts();
+  CELLS.forEach((name, i) => {
+    const d = $("cell" + i);
+    d.className = "cell" + (i === selCell ? " sel" : "") + (c[i] ? " trained" : "") + (i === hot ? " hot" : "");
+    d.innerHTML = `${name}<br><small>${c[i] ? c[i] + " örnek" : ""}</small>`;
+  });
+}
+drawCells(null);
+
+function beep(freq, ms) {
+  try {
+    const ac = beep.ac || (beep.ac = new AudioContext());
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = freq; g.gain.value = 0.15;
+    o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + ms / 1000);
+  } catch {}
+}
+
+function startRecording(label) {
+  if (recording) return;
+  const name = label === EMPTY ? "boş oda" : CELLS[label];
+  recording = { label, startAt: performance.now() + 5000, endAt: performance.now() + 20000, got: 0 };
+  beep(660, 150);
+  const tick = setInterval(() => {
+    const now = performance.now();
+    if (!recording) return clearInterval(tick);
+    if (now < recording.startAt) $("zoneInfo").textContent = `"${name}" için yerine geç… ${Math.ceil((recording.startAt - now) / 1000)} sn`;
+    else if (now < recording.endAt) $("zoneInfo").textContent = `Kaydediliyor: "${name}", kıpırdama… ${Math.ceil((recording.endAt - now) / 1000)} sn`;
+  }, 250);
+}
+
+function zoneAccumulate(amp) {
+  for (let i = 0; i < N; i++) zoneSum[i] += amp[i];
+  zoneN++;
+  const now = performance.now();
+  if (now - zoneT < 500) return;
+  const f = Array.from(zoneSum, (v) => v / zoneN);
+  zoneSum = new Float64Array(N); zoneN = 0; zoneT = now;
+
+  if (recording) {
+    if (now >= recording.startAt && now < recording.endAt) {
+      if (recording.got === 0) beep(880, 200);
+      samples.push({ label: recording.label, f }); recording.got++;
+    } else if (now >= recording.endAt) {
+      beep(440, 400);
+      log(`# öğrenildi: ${recording.label === EMPTY ? "boş oda" : CELLS[recording.label]} (${recording.got} örnek)`);
+      $("zoneInfo").textContent = `Öğrenildi: ${recording.label === EMPTY ? "boş oda" : CELLS[recording.label]}. Başka bir kare seçip devam edebilirsin.`;
+      recording = null;
+      try { localStorage.setItem("csiZones", JSON.stringify(samples)); } catch {}
+      fetch("/zones", { method: "POST", body: JSON.stringify(samples) }).catch(() => {});
+      drawCells(null);
+    }
+    return;
+  }
+  predictZone(f);
+}
+
+function predictZone(f) {
+  const labels = new Set(samples.map((s) => s.label));
+  if (labels.size < 2) return;
+  const k = 7;
+  const near = samples
+    .map((s) => ({ label: s.label, d: s.f.reduce((a, v, i) => a + (v - f[i]) ** 2, 0) }))
+    .sort((a, b) => a.d - b.d).slice(0, k);
+  const votes = {}; for (const n of near) votes[n.label] = (votes[n.label] || 0) + 1;
+  guesses.push(+Object.keys(votes).reduce((a, b) => (votes[a] >= votes[b] ? a : b)));
+  if (guesses.length > 4) guesses.shift();
+  const tally = {}; for (const g of guesses) tally[g] = (tally[g] || 0) + 1;
+  const best = +Object.keys(tally).reduce((a, b) => (tally[a] >= tally[b] ? a : b));
+  const conf = (votes[best] || 0) / k;
+  zoneState = { best, conf };
+  $("zoneGuess").textContent = best === EMPTY ? "Oda boş" : CELLS[best];
+  $("zoneConf").textContent = `oy oranı %${Math.round(conf * 100)} · ${labels.size} yer öğretildi`;
+  drawCells(best === EMPTY ? null : best);
+}
+let zoneState = null;
+
+$("teachCell").onclick = () => startRecording(selCell);
+$("teachEmpty").onclick = () => startRecording(EMPTY);
+$("resetZones").onclick = () => {
+  samples = []; guesses = [];
+  try { localStorage.removeItem("csiZones"); } catch {}
+  $("zoneGuess").textContent = "–"; $("zoneConf").textContent = "en az iki yer öğretilmeli";
+  drawCells(null);
+};
+
+// ---------- guided breathing pacer ----------
+function pacer() {
+  const bpm = +$("pace").value;
+  const dot = $("pacerDot"), txt = $("pacerText");
+  if (!bpm) { dot.style.transform = "scale(0.6)"; dot.style.opacity = ".25"; txt.textContent = ""; }
+  else {
+    const period = 60 / bpm, ph = ((performance.now() / 1000) % period) / period;
+    const s = 0.5 - 0.5 * Math.cos(2 * Math.PI * ph);
+    dot.style.transform = `scale(${0.45 + 0.55 * s})`; dot.style.opacity = ".85";
+    txt.textContent = ph < 0.5 ? "Nefes al" : "Nefes ver";
+  }
+  requestAnimationFrame(pacer);
+}
+requestAnimationFrame(pacer);
+
+// Send a summary to the local server once a second, and a waterfall image every 5 s.
+let lastSnap = 0;
+function report(rate, rssi, sc, amp) {
+  const stat = {
+    t: new Date().toISOString(), rate, rssi,
+    score: sc === null ? null : +sc.toFixed(2),
+    threshold: +threshold.toFixed(2), baseline: baseline === null ? null : +baseline.toFixed(2),
+    state: $("stateText").textContent, profile: amp.map((a) => +a.toFixed(1)),
+    breath: { bpm: breath.bpm && +breath.bpm.toFixed(1), raw: breath.rawBpm && +breath.rawBpm.toFixed(1), conf: +breath.conf.toFixed(2) },
+    pace: +$("pace").value,
+    zone: zoneState, recording: recording ? recording.label : null,
+  };
+  fetch("/stat", { method: "POST", body: JSON.stringify(stat) }).catch(() => {});
+  if (performance.now() - lastSnap > 5000) {
+    lastSnap = performance.now();
+    const big = document.createElement("canvas");
+    big.width = N * 8; big.height = FALL_ROWS;
+    const g = big.getContext("2d");
+    g.imageSmoothingEnabled = false;
+    g.drawImage(fall, 0, 0, big.width, big.height);
+    fetch("/snapshot", { method: "POST", body: big.toDataURL("image/png") }).catch(() => {});
+  }
+}
+
+function finishCalibration() {
+  const s = calibrating;
+  const m = s.reduce((a, b) => a + b, 0) / s.length;
+  const sd = Math.sqrt(s.reduce((a, b) => a + (b - m) ** 2, 0) / s.length);
+  baseline = m;
+  threshold = Math.max(m + 4 * sd, m * 1.6);
+  $("thr").textContent = `eşik ${threshold.toFixed(1)} (boş oda ${m.toFixed(1)})`;
+  $("calib").disabled = false;
+  calibrating = null;
+  log(`# kalibrasyon: ortalama ${m.toFixed(2)}, sapma ${sd.toFixed(2)}, eşik ${threshold.toFixed(2)}`);
+}
+
+$("calib").onclick = () => {
+  calibrating = []; calibrating.end = performance.now() + 10_000;
+  $("calib").disabled = true; $("thr").textContent = "kıpırdama…";
+};
+
+// ---------- serial ----------
+$("connect").onclick = async () => {
+  if (!("serial" in navigator)) {
+    log("Bu tarayıcı Web Serial desteklemiyor. Sayfayı Chrome veya Edge ile aç.");
+    return;
+  }
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 921600, bufferSize: 1 << 16 });
+    $("connect").disabled = true; $("connect").textContent = "Bağlandı";
+    $("calib").disabled = false;
+    const reader = port.readable.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line.startsWith("CSI,")) {
+          const p = line.split(",");
+          if (p.length === 3 + N_RAW) onPacket(+p[2], p.slice(3).map(Number));
+        } else if (line) {
+          log(line);
+        }
+      }
+    }
+  } catch (e) {
+    log("Bağlantı hatası: " + e.message);
+    $("connect").disabled = false; $("connect").textContent = "ESP32'ye bağlan";
+  }
+};
+</script>
+</body>
+</html>
