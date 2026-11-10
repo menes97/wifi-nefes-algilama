@@ -1,5 +1,7 @@
 # WiFi ile Varlık, Nefes ve Konum Algılama
 
+**English:** [summary below](#english). Lisans: MIT.
+
 Evdeki modem ve WiFi sinyaliyle odada biri var mı, hareket ediyor mu, nefes ritmi ne, odanın neresinde duruyor diye ölçme denemeleri. Önce laptopun WiFi sinyal gücüyle (RSSI), sonra bir ESP32'nin okuduğu kanal bilgisiyle (CSI).
 
 ## Sonuçlar
@@ -47,3 +49,34 @@ Bu depoda **yok**: WiFi şifresi, ağ adı, modemin MAC adresi (bir MAC adresi e
 Yerel sunucular (`server.js`) sadece bu bilgisayardan erişilebilir (`127.0.0.1`), başka sitelerden gelen yazma isteklerini reddeder ve modemin MAC adresini okumaz. Bu yüzden `linkedin-2/build-chart.js` ve `linkedin-3/build-map.js` kendi ölçüm verin olmadan çalışmaz; görsellerin kendisi depoda.
 
 WiFi ile algılama sadece kendi evinde ve evde yaşayanların bilgisiyle yapılmalı.
+
+## Lisans
+
+MIT, bkz. [LICENSE](LICENSE).
+
+---
+
+## English
+
+**Sensing presence, breathing and position in a room from home WiFi**: first with a laptop's signal strength (RSSI), then with channel state information (CSI) from an ESP32 that pings the home router 100 times a second.
+
+### Results
+These come from one person in one room, sitting still, with a paced-breathing guide. They are hobby measurements, not medical ones.
+
+- **Laptop RSSI:** stepping between the laptop and the router dropped the signal from −43 to −50 dBm. Windows only refreshes RSSI about every 5 s, so quick movements are missed.
+- **ESP32 CSI:** 100 packets/s, 52 data subcarriers each. The receiver's automatic gain control rescales whole packets, so each packet is divided by its own mean, leaving only the shape across subcarriers. Motion score (summed per-subcarrier std over the summed means, ×100, 0.5 s windows): about 4–6 when still, 12–29 when moving.
+- **Breathing:** packets are averaged to 10 Hz and the last 60 s are kept for each subcarrier. Each subcarrier is detrended, Hann-windowed and transformed over 0.1–0.7 Hz; the 8 most periodic subcarriers are summed, and the peak, with parabolic interpolation, gives the rate. A 10 breaths/min guide measured 9.9–11.0, and a 6/min guide 6.0–7.1. When I left the room, the rhythm's power fell to the noise floor. Expect a 30–60 s lag.
+- **Position:** a k-nearest-neighbour vote over averaged CSI vectors, trained on 4 spots for 15 s each. Trained on the first half of each recording and tested on the second, it was right 80% of the time (chance is 25%): centre 100%, centre-left 93%, centre-front 80%, back-right 47%. It has to be retrained when furniture moves.
+
+![Breathing rate from WiFi CSI](linkedin-esp32/1-nefes.png)
+
+### Running it
+1. Install [Arduino CLI](https://arduino.github.io/arduino-cli/) and the ESP32 core (commands above).
+2. Copy `esp32-csi/csi_recv/secrets.example.h` to `secrets.h` and fill in your 2.4 GHz network name, password, the router's 2.4 GHz BSSID and channel (`netsh wlan show networks mode=bssid` on Windows). `secrets.h` is git-ignored.
+3. `arduino-cli compile --fqbn esp32:esp32:esp32 esp32-csi/csi_recv`, then `arduino-cli upload ... -p <your port>`.
+4. `node esp32-csi/viewer/server.js`, open http://localhost:8766 in Chrome (it uses Web Serial), and press "ESP32'ye bağlan" (connect).
+
+The viewer UI and most comments are in Turkish; the code comments in the ESP32 sketch and the viewer's signal processing are in English. `rssi-monitor/` is the laptop RSSI page, and `ses-sonari/` is an unfinished speaker-and-microphone sonar.
+
+### Privacy
+The repo contains no WiFi password, network name, router MAC address (a BSSID can be looked up in public WiFi maps to locate a home), compiled firmware or raw measurements. The local servers bind to 127.0.0.1 and never read the router's MAC address. Please only sense people in your own home, with their knowledge.
